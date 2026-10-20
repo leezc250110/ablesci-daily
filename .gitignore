@@ -13,3 +13,11 @@ Thumbs.db
 # Screenshots
 *.png
 *.jpg
+
+# Local credentials and environments
+.env
+.env.*
+!.env.example
+.venv/
+.coverage
+htmlcov/
