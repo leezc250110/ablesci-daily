@@ -1,374 +1,143 @@
-# AbleSci 每日自动签到（多账号版）
+# AbleSci 每日签到
 
-在 GitHub Actions 上自动完成 [ablesci.com](https://www.ablesci.com) 的每日签到，**一个仓库可以同时服务多个人**。
+通过 GitHub Actions 为 [AbleSci 科研通](https://www.ablesci.com) 账号定时签到，支持最多 **20 个账号**、结果汇总和可选邮件通知，无需服务器。
 
-加一个人只需要两步：在仓库里加 2 个 Secret，然后在 workflow 里加 2 行。不需要服务器，不需要写代码，也不需要对方有 GitHub 账号。
+[配置账号](https://github.com/leezc250110/ablesci-daily/settings/secrets/actions) · [查看运行结果](https://github.com/leezc250110/ablesci-daily/actions/workflows/ablesci-signin.yaml) · [详细配置](docs/configuration.md) · [故障排查](docs/troubleshooting.md)
 
----
+## 快速开始
 
-## ⚠️ 先看这个：旧版脚本已经失效了
+### 1. 准备你自己的仓库
 
-如果你之前跑的是原版脚本，它**大概率一直在静默失败**，原因有两个：
+如果你就是本仓库的所有者，直接进入下一步。其他使用者先 Fork 到自己的 GitHub 账号，在自己的仓库中操作。下文快捷链接指向 `leezc250110/ablesci-daily`；Fork 后请切换到自己的仓库。
 
-**1. CSRF 正则匹配不到，脚本直接退出**
+在仓库顶部打开 **Settings → Secrets and variables → Actions → Secrets**。如果没有 Settings，确认当前登录的账号有仓库管理员权限。
 
-站点改版后，登录页的标记变成了这样：
+### 2. 添加签到账号
 
-```html
-<input type="hidden" id="login2-csrf" name="_csrf" value="t5zEo1ywa4_3Qv...">
-<meta name="csrf-token" content="t5zEo1ywa4_3Qv...">
-```
+点击 **New repository secret**，分别添加：
 
-旧脚本找的是 `id="csrf-val" value="..."`，早已不存在。匹配失败后脚本会打印
-`Error: Could not find CSRF token` 并 `sys.exit(1)` —— **连登录请求都没发出去**。
-
-**2. CSRF token 每次请求都会轮换，用错会被要求输入验证码**
-
-实测三组对照：
-
-| 提交的 `_csrf` | 站点返回 |
+| Name | Secret 值 |
 | --- | --- |
-| 当次从表单抓取的正确 token | `{"code":1,"msg":"邮箱或密码错误","verify":0}` ✅ 正常校验账密 |
-| `_csrf` cookie 里的值 | `{"code":1,"msg":"请输入验证码","verify":1}` ⚠️ |
-| 空字符串 | `{"code":1,"msg":"请输入验证码","verify":1}` ⚠️ |
+| `ABLESCI_1_EMAIL` | AbleSci 登录邮箱 |
+| `ABLESCI_1_PASSWORD` | AbleSci 登录密码 |
 
-所以**每次签到都必须重新 GET 登录页、重新抓 token**，不能复用。本版已按此实现，
-并会自动识别"被要求验证码"这种状态、给出明确提示。
+Secret 名称必须完全一致，值不要附带引号或多余换行。密码填在 GitHub Secrets 中，不要写进代码、Issue 或公开日志。保存后的 Secret 无法查看，只能更新。
 
----
+前 **5 个账号**可以直接按编号增加 `ABLESCI_2_EMAIL` / `ABLESCI_2_PASSWORD` 等，无需修改代码。更多账号建议使用下面的 JSON 配置。
 
-## 🚀 快速开始
+### 3. 手动验证一次
 
-### 第 1 步：添加账号
+打开 **Actions → AbleSci 每日签到 → Run workflow**，选择默认分支 `master`，再点击绿色按钮。
 
-打开仓库的 Secrets 页面：
+如果 Fork 后提示工作流未启用，先点击启用工作流的按钮。进入本次运行，在 **Summary** 查看账号、状态、说明、积分和连续签到天数。
 
-```
-https://github.com/leex250110/ablesci-daily-signin/settings/secrets/actions
-```
-
-点 **New repository secret**，添加两组值（注意名字要完全一致）：
-
-| Name | Secret |
+| 状态 | 含义 |
 | --- | --- |
-| `ABLESCI_1_EMAIL` | 对方的 AbleSci 登录邮箱 |
-| `ABLESCI_1_PASSWORD` | 对方的 AbleSci 登录密码 |
+| ✅ 签到成功 | 本次完成签到 |
+| ℹ️ 今日已签到 | 今天已完成，属于成功 |
+| ❌ 失败 | 网站拒绝登录或签到，检查账号配置 |
+| 🤖 被要求验证码 | 先用浏览器完成验证，再手动重跑 |
+| ⚠️ 异常 | 网络或网站响应异常，查看步骤日志 |
 
-**要加第二个人**，就再加 `ABLESCI_2_EMAIL` / `ABLESCI_2_PASSWORD`，以此类推，最多支持 20 个。
+任一账号失败，任务退出码为 `1`；全部签到成功或今日已签到，退出码为 `0`。配置缺失或不完整也会明确失败，不会悄悄跳过。
 
-> 密码只在 GitHub 的加密 Secret 里，日志和代码里都不会出现。
-> 一旦填进去，连你自己也无法再查看，只能覆盖重写。
+### 4. 等待每天自动运行
 
-### 第 2 步：在 workflow 里放行这个槽位
+默认每天 **北京时间 08:00** 触发。GitHub 调度可能延迟；工作流另外保留 **0～25 分钟随机等待**，手动运行不等待。账号之间间隔 4～15 秒。
 
-打开 `.github/workflows/ablesci-signin.yaml`，找到 `env:` 段落。
-默认已经预留了 **5 个槽位**（`ABLESCI_1_*` 到 `ABLESCI_5_*`），所以加前 5 个人**这步可以跳过**。
+如需关闭额外等待，在 **Settings → Secrets and variables → Actions → Variables** 新建 Repository variable：`ABLESCI_JITTER_MAX`，值填 `0`。可设置范围为 `0`～`1500` 秒。等待会占用 runner 运行时间。
 
-如果要加第 6 个及以后，照抄两行即可：
+定时任务从默认分支运行。公开仓库连续 60 天无活动时，GitHub 可能停用定时工作流；需要到 Actions 重新启用。调度规则见 [GitHub 官方说明](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。
 
-```yaml
-      ABLESCI_6_EMAIL: ${{ secrets.ABLESCI_6_EMAIL }}
-      ABLESCI_6_PASSWORD: ${{ secrets.ABLESCI_6_PASSWORD }}
+## 多账号：一个 Secret 管理
+
+新建名为 **`ABLESCI_ACCOUNTS_JSON`** 的 Repository secret，值为 JSON 数组：
+
+```json
+[
+  {"name": "账号一", "email": "one@example.com", "password": "替换为真实密码"},
+  {"name": "账号二", "email": "two@example.com", "password": "替换为真实密码"}
+]
 ```
 
-没配置的槽位会变成空字符串，脚本会自动跳过，不会报错。
+`name` 可省略。数组内添加账号即可，最多 20 个，不需要修改 workflow。JSON 使用双引号；密码中如果含双引号或反斜杠，需要按 JSON 规则转义，例如 `\"` 和 `\\`。
 
-### 第 3 步：手动跑一次验证
+JSON 与现有编号式 Secrets 可以共存；同邮箱、同密码合并，同邮箱、不同密码会报错。改用 JSON 后建议删除已替代的编号式 Secrets，避免以后只更新其中一处。[完整规则与配置表](docs/configuration.md)
 
-打开 Actions 页面：
+## 可选：邮件通知
 
-```
-https://github.com/leex250110/ablesci-daily-signin/actions
-```
+不配置邮件也能签到。需要邮件时，在同一 Secrets 页面添加：
 
-选左边 **「AbleSci 每日签到」** → 右上角 **Run workflow** → 绿色按钮。
+| Secret | 示例 / 作用 |
+| --- | --- |
+| `SMTP_HOST` | QQ 邮箱填 `smtp.qq.com` |
+| `SMTP_PORT` | `465`（SSL，默认）或 `587`（STARTTLS） |
+| `SMTP_USER` | 发件邮箱，例如 `your-account@qq.com` |
+| `SMTP_PASS` | 邮箱服务商提供的 SMTP 授权码或应用专用密码 |
+| `MAIL_TO` | 收件邮箱；多个用英文逗号分隔；省略则发给自己 |
+| `MAIL_WHEN` | `failure` 只在账号签到失败时发送；`always` 每次发送（默认）；`never` 关闭 |
 
-大约 30 秒后刷新，点进这次运行记录，你会看到：
+QQ 邮箱需先在邮箱设置中开启 SMTP 并获取授权码，`SMTP_PASS` 不填邮箱登录密码。其他服务商需要支持用户名和密码方式的 SMTP 认证。
 
-- **签到结果**（Job Summary，最直观）—— 一张表格，列出每个账号的状态、积分、连签天数
-- **执行签到**（日志）—— 详细过程
+邮件提供纯文本与 HTML 表格。SMTP 配置或发送失败会输出警告，不改变签到任务的退出码。账号配置检查失败发生在签到前，不会发送这封签到结果邮件。只支持 465 / 587，连接会验证服务器证书。
 
-看到下面的汇总就是成功了：
+## 本地运行与检查
 
-```
-✅ 账号1 (zh***@qq.com) —— 签到成功
-   当前积分：1234
-   连续签到：7 天
-```
+需要 **Python 3.10+**，在项目根目录执行：
 
-### 第 4 步：什么都不用做了
+```sh
+python -m pip install -r requirements.txt
 
-之后每天北京时间 **08:00** 会自动执行，结果记录在 Actions 页面。
-
----
-
-## 📊 结果状态说明
-
-| 图标 | 状态 | 含义 | 要不要管 |
-| --- | --- | --- | --- |
-| ✅ | 签到成功 | 本次签到完成 | 不用 |
-| ℹ️ | 今日已签到 | 今天已经签过了 | 不用 |
-| ❌ | 失败 | 密码错、账号不存在等 | **要**，检查 Secret 是否填对 |
-| 🤖 | 被要求验证码 | 站点要求人机验证 | **要**，见下方 FAQ |
-| ⚠️ | 异常 | 网络问题、站点改版等 | 看说明文字 |
-
-只要有任何账号不是 ✅ 或 ℹ️，整个任务就会**变红**，方便你一眼发现。
-
----
-
-## 📧 邮件通知（可选，免费）
-
-签到完成后可以自动发一封邮件。**完全免费** —— GitHub Actions 在公开仓库上
-分钟数不限量，邮件走你自己的 QQ/163 邮箱 SMTP，不涉及任何付费服务。
-技术上只用 Python 标准库 `smtplib`，所以 `requirements.txt` 依然只有 `requests`。
-
-### 配置步骤（以 QQ 邮箱为例）
-
-**① 拿授权码**
-
-登录 [QQ 邮箱](https://mail.qq.com) → 设置 → 账户 → 找到「IMAP/SMTP 服务」
-→ 开启 → 按提示发短信验证 → 得到一串 **16 位授权码**。
-
-> ⚠️ 要用**授权码**，不是 QQ 邮箱的登录密码。填登录密码会认证失败。
-
-**② 添加 Secrets**
-
-到 [Secrets 页面](https://github.com/leex250110/ablesci-daily-signin/settings/secrets/actions) 添加：
-
-| Name | 值 | 说明 |
-| --- | --- | --- |
-| `SMTP_HOST` | `smtp.qq.com` | 邮件服务器 |
-| `SMTP_PORT` | `465` | **必须 465 或 587**，见下方警告 |
-| `SMTP_USER` | `你的QQ号@qq.com` | 发件邮箱 |
-| `SMTP_PASS` | 16 位授权码 | 不是登录密码 |
-| `MAIL_TO` | 收件邮箱 | 可留空（默认发给自己）；多个用逗号分隔 |
-| `MAIL_WHEN` | `always` | `always` 每次都发 / `failure` 只在失败时发 / `never` 关闭 |
-
-> 不加任何 `SMTP_*` 也能正常跑，脚本会**静默跳过**邮件这步，不影响签到。
-
-**③ 手动 Run 一次**验证能收到邮件。
-
-### ⚠️ 25 端口在 GitHub Actions 上必然失败
-
-GitHub Actions 运行在 Azure 上，**Azure 出于 IP 信誉考虑封锁了出站 25 端口**
-（[微软官方说明](https://learn.microsoft.com/en-au/answers/questions/5818224/outbound-smtp-port-25-blocked)）。
-「本机用 25 端口发得出去、换到 Actions 就失败」基本都是这个原因。
-
-**必须用 465(SSL) 或 587(STARTTLS)。** 常见邮箱配置：
-
-| 邮箱 | `SMTP_HOST` | `SMTP_PORT` | 密码填什么 |
-| --- | --- | --- | --- |
-| QQ 邮箱 | `smtp.qq.com` | `465` | 16 位授权码 |
-| 163 邮箱 | `smtp.163.com` | `465` | 授权码 |
-| Gmail | `smtp.gmail.com` | `465` | 应用专用密码 |
-| Outlook | `smtp.office365.com` | `587` | 账户密码 |
-
-### 邮件长什么样
-
-带一张结果表格（HTML），同时附纯文本版本，主题类似：
-
-```
-✅ AbleSci 签到成功 2/2（09-11 16:40）
-❌ AbleSci 签到异常 1/2（09-11 16:40）
-```
-
-### 几个设计细节
-
-- **发信失败不会把签到任务标记成失败** —— 通知只是附加功能，签到成功就是成功。
-  日志里会打印 `⚠️ 邮件发送失败（不影响签到结果）：...`。
-- **邮箱全程打码**，邮件正文里显示的是 `28***@qq.com`。
-- `MAIL_WHEN=failure` 会让邮件**只在出问题时**才发，日常不打扰 —— 推荐这个，
-  否则每天一封「签到成功」很快就会被你设成垃圾邮件。
-
-### 如果只想要失败提醒
-
-**GitHub 本身对失败的定时任务会给仓库所有者发通知邮件**，
-可在 Settings → Notifications 里调整。所以只关心"哪天挂了"的话，
-不配 `SMTP_*` 也够用；本节的方案主要是为了**成功时也收到确认**。
-
-### 其他免费方案
-
-如果觉得邮件太正式，国内更常用的其实是微信推送（Server酱、PushPlus）或
-Telegram Bot —— 同样是免费的，手机上看更直观。需要的话告诉我，可以再加。
-
----
-
-## ⏱ 关于签到时刻与「被网站检测」
-
-如果你担心"每天同一时间签到会被识别成机器人"，这里是对应的实测数据。
-
-**cron 的触发时刻 ≠ 实际签到时刻。** GitHub 免费版会把定时任务推迟，
-实测推迟 **1.6 ~ 10.9 小时**不等：
-
-```
-07-30           偏移 2.8h
-08-15 ~ 08-26   偏移 1.6 ~ 1.8h    ← 连续 12 天几乎不变
-08-27           偏移 8.7h           ← 突然跳变
-08-30 ~ 09-11   偏移 4.0 ~ 4.2h    ← 又稳定了
-```
-
-注意第二段：**偏移量会成段稳定** —— 连续十几天落在同一小时内，
-每天相差不超过 10 分钟。这种规律性本身确实是个可被识别的模式。
-
-**本项目做了三件事来打散它：**
-
-1. `ABLESCI_JITTER_MAX`（默认 `1500` 秒 = 最多 25 分钟）：定时触发时
-   先随机等待 0~25 分钟再签到，破坏上表里"成段稳定"的规律。
-   手动 `Run workflow` 不会空等（仅对 `schedule` 生效），设为 `0` 可关闭。
-2. 账号之间改为**随机间隔**（4~15 秒），不再是固定值。
-3. 请求头按真实 Chrome 补齐（`Accept-Language`、`Sec-Fetch-*`、
-   `sec-ch-ua` 等），登录与签到接口使用站点自身的 AJAX 头风格。
-
-**同时要如实说明这些措施的边界：**
-
-- 随机时间只能打破**分钟级**规律，做不到让签到时刻在全天随机分布。
-- 真正决定性的特征是 **GitHub Actions 运行在公开的数据中心 IP 段上**
-  （GitHub 公开了 [IP 列表](https://api.github.com/meta)）。这是时间扰动
-  无法掩盖的；若站点将来部署认真的机器人检测，这会是首要依据。
-
-**目前没有这个迹象**：仓库中 2026-07-30 ~ 09-09 的 **42 次定时签到全部成功**，
-从 GitHub IP 发起，既未被拦截也未触发验证码。站点现有的防护是
-CSRF token + 失败多次后要求验证码，所以真正的风险不是"被检测"，
-而是**密码错误反复重试导致触发验证码** —— 保持 Secret 正确比什么都重要。
-
-> 成本提示：公开仓库的 Actions 分钟数免费不限量。若改为 **Private**，
-> 25 分钟随机延迟平均每天消耗约 12 分钟，一个月约 375 分钟，
-> 占免费额度（2000 分钟/月）的约 19%，可按需调小或关闭。
-
----
-
-## ❓ 常见问题
-
-<details>
-<summary><b>出现「被要求验证码」怎么办？</b></summary>
-
-说明这个 IP 或账号短时间内失败次数太多，触发了风控。处理方式：
-
-1. 用浏览器正常登录一次 ablesci.com，手动完成验证码
-2. 确认密码没改过、Secret 填的是对的
-3. 回到 Actions 页面重新 Run workflow
-
-如果反复出现，通常意味着密码本身就错了 —— 先确认能手动登录成功。
-</details>
-
-<details>
-<summary><b>为什么定时任务没准点跑？</b></summary>
-
-GitHub 免费版的 cron **不保证准点**。实测本仓库 44 次定时运行，实际执行
-时刻比 cron 设定值推迟了 **1.6 ~ 10.9 小时**，且偏移量成段稳定。
-极端情况下还会直接跳过某一天。这是 GitHub 的调度限制，不是脚本的问题。
-
-详见上方「关于签到时刻与"被网站检测"」一节。如果你需要精确到分钟的执行时间，
-可以考虑改用 Cloudflare Workers 的 Cron Triggers（免费、零冷启动）。
-</details>
-
-<details>
-<summary><b>跑了一段时间后突然不跑了？</b></summary>
-
-GitHub 会在**仓库连续 60 天没有任何活动**时自动暂停定时任务。
-签到本身不算"活动"，所以需要你偶尔动一下仓库 —— 随便改个文件、提交一次，
-或者到 Actions 页面手动 Run 一次即可重新激活。
-</details>
-
-<details>
-<summary><b>对方修改了密码怎么办？</b></summary>
-
-到 Secrets 页面点开对应的 `ABLESCI_N_PASSWORD` → **Update**，填入新密码。
-Secret 无法查看，只能覆盖。
-</details>
-
-<details>
-<summary><b>明明密码是对的，却一直报「邮箱或密码错误」？</b></summary>
-
-多半是 Secret 的值里混进了**不可见字符**。最容易踩的是在 Windows
-PowerShell 5.1 下这样写 Secret：
-
-```powershell
-$email | gh secret set ABLESCI_1_EMAIL    # ❌ 会混入 BOM 和换行
-```
-
-PowerShell 5.1 通过管道向原生程序传字符串时，会自动加上 UTF-8 BOM
-（`EF BB BF`）和尾随 CRLF。实际存进去的值变成了
-`\uFEFF2892447010@qq.com\r\n` —— 而 Secret 不可查看，掩码输出后只差一个
-看不见的字符，排查起来非常痛苦（症状就是"密码明明没错却登不上"）。
-
-**正确做法**（任选其一）：
-
-1. **用 GitHub 网页界面添加** —— 点 `New repository secret` 粘贴，
-   注意别带入多余的换行；
-2. **命令行改用 `--body`**，值走参数而不是管道：
-
-   ```powershell
-   gh secret set ABLESCI_1_EMAIL --body 'you@example.com'
-   ```
-
-> 本脚本已内置防御：会自动去掉值里的 BOM 和首尾 CR/LF。
-> 但密码**首尾的空格会被保留**，以免误伤真的以空格开头/结尾的密码。
-</details>
-
-<details>
-<summary><b>站点又改版导致脚本失效怎么办？</b></summary>
-
-workflow 里有一个**「站点自检」**步骤，它不登录、只验证能否抓到 CSRF token。
-
-如果某天它失败了，说明站点结构又变了。日志里会明确告诉你
-「站点可能再次改版，请更新 ablesci_signin.py 里的 CSRF_PATTERNS」，
-去那里补一条正则即可。
-</details>
-
----
-
-## 🔒 安全说明
-
-- **密码存放**：只存在于 GitHub 加密 Secret 中，仓库代码和提交历史里没有密码。
-- **日志打码**：所有输出里的邮箱都会打码（`zhangsan@qq.com` → `zh***@qq.com`）。
-  这一点很重要，因为**公开仓库的 Actions 日志是所有人可见的**。
-  请顺带确认一下本仓库的可见性：Settings → General → Danger Zone。
-- **权限最小化**：workflow 只声明了 `contents: read`。
-- **风险提示**：把密码交给任何自动化服务都意味着你信任它。本项目把密码放在你自己
-  拥有的仓库里，不经过第三方服务器；但如果你对这点有顾虑，让对方自己
-  fork 一份仓库、自己填 Secret 是最稳妥的。
-
----
-
-## 🖥️ 本地运行
-
-除了 GitHub Actions，也可以在本地直接跑（适合调试）：
-
-```bash
-pip install -r requirements.txt
-
-# 只验证站点可达、CSRF 能抓到，不需要账号
+# 联网检查登录页与 CSRF，不需要账号，不登录
 python ablesci_signin.py --check
 
-# 实际签到（Windows PowerShell 写法）
-$env:ABLESCI_1_EMAIL="邮箱"; $env:ABLESCI_1_PASSWORD="密码"
+# 离线检查账号和随机等待配置，不签到、不发邮件
+python ablesci_signin.py --check-config
+```
+
+实际签到前，需先在当前终端配置环境变量，例如 Windows PowerShell：
+
+```powershell
+$env:ABLESCI_1_EMAIL = 'one@example.com'
+$securePassword = Read-Host 'AbleSci 密码' -AsSecureString
+$env:ABLESCI_1_PASSWORD = [System.Net.NetworkCredential]::new('', $securePassword).Password
+python ablesci_signin.py --check-config
 python ablesci_signin.py
-
-# Linux / macOS
-ABLESCI_1_EMAIL="邮箱" ABLESCI_1_PASSWORD="密码" python ablesci_signin.py
+Remove-Item Env:ABLESCI_1_PASSWORD
 ```
 
-退出码：全部成功为 `0`，任一账号失败为 `1`。
+`python -m ablesci` 是等效入口。项目不会自动读取 `.env` 文件；环境变量由终端或 GitHub Actions 注入。不要在共享终端中留下凭据。
 
----
+## 从旧版升级 / 仓库迁移后
 
-## 📁 文件结构
+- 继续使用原来的 `ABLESCI_1_*`～`ABLESCI_5_*` 或 `ABLESCI_EMAIL` / `ABLESCI_PASSWORD`，无需重填。
+- 原命令 `python ablesci_signin.py` 和原定时触发时刻保留。
+- 以前填写了一半的账号会被跳过；现在会让配置检查失败，请补全或删除该账号的两个 Secret。
+- `ABLESCI_JITTER_MAX` 现在通过 Repository variable 配置，范围 0～1500 秒。
+- 转移仓库后，请在新仓库确认 Secrets、Actions 启用状态，并手动运行一次。更新 README、收藏和本地 Git 远程地址里的旧账号链接。
 
+## 开发与维护
+
+```text
+ablesci_signin.py             兼容的启动入口
+ablesci/
+  config.py                  环境变量、JSON、校验和去重
+  models.py                  账号与结果模型
+  client.py                  HTTP 会话、CSRF 和站点响应解析
+  runner.py                  单账号流程与有限重试
+  reports.py                 控制台、Actions 摘要和邮件正文
+  notifications.py           SMTP 通知
+  cli.py                     命令行及多账号调度
+.github/workflows/
+  ablesci-signin.yaml         每日签到
+  ci.yaml                    Python 3.10 / 3.12 / 3.14 离线测试
+tests/                       配置、网络分支、报告和通知回归测试
 ```
-ablesci_signin.py                          # 签到主程序
-requirements.txt                           # 依赖（只有 requests）
-.github/workflows/ablesci-signin.yaml      # 定时任务定义
+
+```sh
+python -m unittest discover -s tests -v
 ```
 
----
+测试使用模拟网络与 SMTP，不需要真实密码，也不会签到或发送邮件。每次登录尝试新建会话并抓取 CSRF，登录网络失败最多尝试两次；密码错误、验证码、响应结构异常不自动重试。签到请求发生网络错误时，可能已在网站生效，本次报告异常，下一次运行再确认。[排查与维护说明](docs/troubleshooting.md)
 
-## 附：工作原理
-
-```
-GET  /site/login      →  抓取当次有效的 _csrf token
-POST /site/login      →  提交 email + password + _csrf，返回 JSON
-GET  /                →  同步会话状态
-GET  /user/sign       →  执行签到，返回 JSON
-GET  /                →  读取积分与连续签到天数
-```
+日志会打码显示账号邮箱，网站消息会过滤当前账号的邮箱和密码；不会输出完整响应正文或 CSRF token。公开仓库的代码和运行日志可被他人查看，账号备注也会显示，请只使用不敏感的备注。请使用你有权管理的账号，并遵守网站规则；网站接口、验证码和调度环境发生变化时，需要相应维护，项目无法保证永久可用。
