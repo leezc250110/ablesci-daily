@@ -35,7 +35,7 @@ JSON 的 `name` 无需额外修改 workflow。
 
 | 配置 | 默认值 | 说明 |
 | --- | --- | --- |
-| workflow `schedule` | `0 0 * * *` | UTC，每天北京时间 08:00 触发 |
+| workflow `schedule` | `17 0 * * *` | UTC，每天北京时间 08:17 触发，避开整点负载 |
 | Repository variable `ABLESCI_JITTER_MAX` | `1500` | GitHub 工作流最大随机等待秒数，允许 0～1500；设置 `0` 关闭 |
 | 本地环境变量 `ABLESCI_JITTER_MAX` | `0` | 本地默认不等待，且只有 `GITHUB_EVENT_NAME=schedule` 才会实际等待 |
 | `TZ` | workflow 设为 `Asia/Shanghai` | 日志和邮件主题使用运行环境本地时间 |

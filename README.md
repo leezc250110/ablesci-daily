@@ -43,7 +43,7 @@ Secret 名称必须完全一致，值不要附带引号或多余换行。密码�
 
 ### 4. 等待每天自动运行
 
-默认每天 **北京时间 08:00** 触发。GitHub 调度可能延迟；工作流另外保留 **0～25 分钟随机等待**，手动运行不等待。账号之间间隔 4～15 秒。
+默认每天 **北京时间 08:17** 触发，避开整点负载。GitHub 调度可能延迟；工作流另外保留 **0～25 分钟随机等待**，手动运行不等待。账号之间间隔 4～15 秒。
 
 如需关闭额外等待，在 **Settings → Secrets and variables → Actions → Variables** 新建 Repository variable：`ABLESCI_JITTER_MAX`，值填 `0`。可设置范围为 `0`～`1500` 秒。等待会占用 runner 运行时间。
 
@@ -111,10 +111,10 @@ Remove-Item Env:ABLESCI_1_PASSWORD
 ## 从旧版升级 / 仓库迁移后
 
 - 继续使用原来的 `ABLESCI_1_*`～`ABLESCI_5_*` 或 `ABLESCI_EMAIL` / `ABLESCI_PASSWORD`，无需重填。
-- 原命令 `python ablesci_signin.py` 和原定时触发时刻保留。
+- 原命令 `python ablesci_signin.py` 保留。定时触发时刻现为北京时间 08:17。
 - 以前填写了一半的账号会被跳过；现在会让配置检查失败，请补全或删除该账号的两个 Secret。
 - `ABLESCI_JITTER_MAX` 现在通过 Repository variable 配置，范围 0～1500 秒。
-- 转移仓库后，请在新仓库确认 Secrets、Actions 启用状态，并手动运行一次。更新 README、收藏和本地 Git 远程地址里的旧账号链接。
+- 转移仓库后，请在新仓库确认 Secrets、Actions 启用状态，并手动运行一次。若旧账号被删除或停用，须由新账号修改一次 cron，恢复定时任务关联的触发账号；仅显示 active 或手动成功均不能证明定时调度正常。下一次应检查是否出现 `schedule` 类型的运行记录。更新 README、收藏和本地 Git 远程地址里的旧账号链接。
 
 ## 开发与维护
 
