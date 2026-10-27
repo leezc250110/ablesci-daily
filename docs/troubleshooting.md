@@ -41,8 +41,9 @@ HTTP 错误、非 JSON 响应、JSON 结构不匹配会明确报错，不输出�
 1. 确认 workflow 在默认分支 `master`，Actions 已启用，且每日签到工作流处于启用状态。
 2. Fork 后通常需要先在 Actions 页面允许工作流运行。
 3. 公开仓库连续 60 天没有仓库活动时，定时工作流可能被自动停用。在 Actions 选择工作流，通过 **Enable workflow** 重新启用，再手动运行验证。
-4. GitHub 调度可能延迟或丢弃任务，尤其在整点负载高时。08:00 是触发时刻，不是签到承诺时间；还要计入项目额外随机等待和排队时间。
-5. 如需调整时刻，修改 workflow 中的 cron。它按 UTC 计算，北京时间减 8 小时；也可改为非整点触发以避开整点负载。
+4. 若显示启用、手动运行成功，却连续多天没有 `schedule` 运行，检查原定时触发账号是否已删除、停用或显示为 `ghost`。由当前有写入权限的账号提交一次实际改变 cron 表达式的修改，重新绑定触发账号；仅修改注释、手动运行或查看 active 状态不能完成这项验证。参见 [GitHub 官方排查说明](https://docs.github.com/en/actions/how-tos/troubleshoot-workflows#scheduled-workflow-stopped-running)。
+5. GitHub 调度可能延迟或丢弃任务，尤其在整点负载高时。08:17 是触发时刻，不是签到承诺时间；还要计入项目额外随机等待和排队时间。
+6. 如需调整时刻，修改 workflow 中的 cron。它按 UTC 计算，北京时间减 8 小时；也可改为非整点触发以避开整点负载。
 
 仅有定时执行记录不应被当成永远保持仓库活跃的保证。详见 [GitHub schedule 文档](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)。
 
@@ -54,7 +55,7 @@ HTTP 错误、非 JSON 响应、JSON 结构不匹配会明确报错，不输出�
 
 ## 仓库转移之后
 
-进入新地址的 Settings 和 Actions，确认 Secrets、仓库变量及定时工作流状态，并手动运行一次。仓库转移前后的功能验证以实际运行结果为准。
+进入新地址的 Settings 和 Actions，确认 Secrets、仓库变量及定时工作流状态，并手动运行一次。若旧账号已经失效，由新账号修改一次 cron。接下来检查首个 `schedule` 运行的触发账号和结果，确认已经恢复；手动运行只能证明当前配置和签到接口可用。
 
 本地克隆更新远程地址：
 
